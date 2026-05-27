@@ -1,3 +1,3 @@
 fastmcp==2.0.0
-garminconnect
+garminconnect[workout]
 curl_cffi

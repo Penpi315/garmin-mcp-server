@@ -16,6 +16,16 @@ def get_client():
     c.login()
     return c
 
+def pace_target(pace_ms: float) -> dict:
+    """Convierte pace en m/s a target de ritmo para Garmin."""
+    return {
+        "workoutTargetTypeId": 6,
+        "workoutTargetTypeKey": "pace.zone",
+        "displayOrder": 1,
+        "targetValueOne": pace_ms * 0.95,
+        "targetValueTwo": pace_ms * 1.05,
+    }
+
 @mcp.tool()
 def get_today_stats() -> dict:
     """Estadísticas de salud y actividad de hoy"""
@@ -74,50 +84,72 @@ def create_running_workout(
     name: str,
     warmup_seconds: int,
     intervals: int,
-    interval_distance_meters: float,
+    interval_seconds: int,
     interval_pace_ms: float,
-    recovery_distance_meters: float,
+    recovery_seconds: int,
     recovery_pace_ms: float,
     cooldown_seconds: int,
     schedule_date: str = None
 ) -> dict:
     """
-    Crea un workout de running con calentamiento, intervalos y enfriamiento.
-    pace en metros/segundo (4:00/km = 4.167 m/s).
+    Crea un workout de running estructurado.
+    Todos los tiempos en segundos.
+    pace en metros/segundo: 4:00/km = 4.167, 4:30/km = 3.704, 5:00/km = 3.333, 5:30/km = 3.030, 6:00/km = 2.778.
     schedule_date opcional YYYY-MM-DD para programarlo directo.
     """
     c = get_client()
+
+    warmup = create_warmup_step(
+        duration_seconds=float(warmup_seconds),
+        step_order=1,
+        target_type=pace_target(recovery_pace_ms)
+    )
+
+    interval_step = create_interval_step(
+        duration_seconds=float(interval_seconds),
+        step_order=1,
+        target_type=pace_target(interval_pace_ms)
+    )
+
+    recovery_step = create_recovery_step(
+        duration_seconds=float(recovery_seconds),
+        step_order=2,
+        target_type=pace_target(recovery_pace_ms)
+    )
+
+    repeat = create_repeat_group(
+        iterations=intervals,
+        workout_steps=[interval_step, recovery_step],
+        step_order=2
+    )
+
+    cooldown = create_cooldown_step(
+        duration_seconds=float(cooldown_seconds),
+        step_order=3,
+        target_type=pace_target(recovery_pace_ms)
+    )
+
+    total_secs = warmup_seconds + intervals * (interval_seconds + recovery_seconds) + cooldown_seconds
+
     workout = RunningWorkout(
         workoutName=name,
-        estimatedDurationInSecs=(
-            warmup_seconds +
-            intervals * (interval_distance_meters / interval_pace_ms +
-                         recovery_distance_meters / recovery_pace_ms) +
-            cooldown_seconds
-        ),
+        estimatedDurationInSecs=float(total_secs),
         workoutSegments=[
             WorkoutSegment(
                 segmentOrder=1,
                 sportType={"sportTypeId": 1, "sportTypeKey": "running"},
-                workoutSteps=[
-                    create_warmup_step(float(warmup_seconds)),
-                    create_repeat_group(
-                        iterations=intervals,
-                        steps=[
-                            create_interval_step(distance=interval_distance_meters, pace=interval_pace_ms),
-                            create_recovery_step(distance=recovery_distance_meters, pace=recovery_pace_ms),
-                        ]
-                    ),
-                    create_cooldown_step(float(cooldown_seconds)),
-                ]
+                workoutSteps=[warmup, repeat, cooldown]
             )
         ]
     )
+
     result = c.upload_running_workout(workout)
     workout_id = result.get("workoutId")
+
     if schedule_date and workout_id:
         c.schedule_workout(workout_id, schedule_date)
         return {"workoutId": workout_id, "scheduled": schedule_date, "name": name}
+
     return {"workoutId": workout_id, "name": name}
 
 if __name__ == "__main__":

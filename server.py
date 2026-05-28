@@ -3,10 +3,7 @@ from datetime import date, timedelta
 from fastmcp import FastMCP
 from garminconnect import Garmin
 from garminconnect.workout import (
-    RunningWorkout, WorkoutSegment,
-    create_warmup_step, create_interval_step,
-    create_recovery_step, create_cooldown_step,
-    create_repeat_group, TargetType,
+    RunningWorkout, WorkoutSegment, RepeatGroup, ExecutableStep
 )
 
 mcp = FastMCP("Garmin Connect")
@@ -16,15 +13,25 @@ def get_client():
     c.login()
     return c
 
-def speed_target(pace_min_km: float) -> dict:
+def pace_target(pace_min_km: float) -> dict:
     speed_ms = 1000 / (pace_min_km * 60)
     return {
         "workoutTargetTypeId": 6,
         "workoutTargetTypeKey": "pace.zone",
         "displayOrder": 1,
-        "targetValueOne": round(speed_ms * 0.90, 4),
-        "targetValueTwo": round(speed_ms * 1.10, 4),
+        "targetValueOne": round(speed_ms * 0.95, 4),
+        "targetValueTwo": round(speed_ms * 1.05, 4),
     }
+
+def make_step(step_type_id, step_type_key, display_order, step_order, duration_seconds, target):
+    return ExecutableStep(
+        stepOrder=step_order,
+        stepType={"stepTypeId": step_type_id, "stepTypeKey": step_type_key, "displayOrder": display_order},
+        endCondition={"conditionTypeId": 2, "conditionTypeKey": "time", "displayOrder": 2, "displayable": True},
+        endConditionValue=float(duration_seconds),
+        targetType={"workoutTargetTypeId": 1, "workoutTargetTypeKey": "no.target", "displayOrder": 1},
+        target=target,
+    )
 
 @mcp.tool()
 def get_today_stats() -> dict:
@@ -93,40 +100,26 @@ def create_running_workout(
 ) -> dict:
     """
     Crea un workout de running estructurado con calentamiento, intervalos y enfriamiento.
-    interval_pace_min_km y recovery_pace_min_km en min/km como decimal (ej: 5:30/km = 5.5, 4:00/km = 4.0, 6:30/km = 6.5).
-    schedule_date opcional YYYY-MM-DD para programarlo directo al calendario.
+    interval_pace_min_km y recovery_pace_min_km en min/km decimal (5:30/km = 5.5, 4:00/km = 4.0).
+    schedule_date opcional YYYY-MM-DD.
     """
     c = get_client()
 
-    warmup = create_warmup_step(
-        duration_seconds=float(warmup_seconds),
-        step_order=1,
-        target_type=speed_target(recovery_pace_min_km)
+    warmup = make_step(1, "warmup", 1, 1, warmup_seconds, pace_target(recovery_pace_min_km))
+
+    interval_step = make_step(3, "interval", 3, 1, interval_seconds, pace_target(interval_pace_min_km))
+    recovery_step = make_step(4, "recovery", 4, 2, recovery_seconds, pace_target(recovery_pace_min_km))
+
+    repeat = RepeatGroup(
+        stepOrder=2,
+        stepType={"stepTypeId": 6, "stepTypeKey": "repeat", "displayOrder": 6},
+        numberOfIterations=intervals,
+        workoutSteps=[interval_step, recovery_step],
+        endCondition={"conditionTypeId": 7, "conditionTypeKey": "iterations", "displayOrder": 7, "displayable": False},
+        endConditionValue=float(intervals),
     )
 
-    interval_step = create_interval_step(
-        duration_seconds=float(interval_seconds),
-        step_order=1,
-        target_type=speed_target(interval_pace_min_km)
-    )
-
-    recovery_step = create_recovery_step(
-        duration_seconds=float(recovery_seconds),
-        step_order=2,
-        target_type=speed_target(recovery_pace_min_km)
-    )
-
-    repeat = create_repeat_group(
-        iterations=intervals,
-        workout_steps=[interval_step, recovery_step],
-        step_order=2
-    )
-
-    cooldown = create_cooldown_step(
-        duration_seconds=float(cooldown_seconds),
-        step_order=3,
-        target_type=speed_target(recovery_pace_min_km)
-    )
+    cooldown = make_step(2, "cooldown", 2, 3, cooldown_seconds, pace_target(recovery_pace_min_km))
 
     total_secs = float(warmup_seconds + intervals * (interval_seconds + recovery_seconds) + cooldown_seconds)
 

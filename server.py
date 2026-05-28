@@ -18,13 +18,13 @@ def get_client():
 
 def speed_target(pace_min_km: float) -> dict:
     """
-    pace_min_km: ritmo en min/km (ej: 5.5 = 5:30/km).
-    Garmin usa speed en m/s. Genera zona ±10%.
+    pace_min_km: ritmo en min/km como decimal (ej: 5.5 = 5:30/km).
+    Garmin usa m/s internamente. targetValueOne = más lento, targetValueTwo = más rápido.
     """
     speed_ms = 1000 / (pace_min_km * 60)
     return {
-        "workoutTargetTypeId": TargetType.SPEED,
-        "workoutTargetTypeKey": "speed.zone",
+        "workoutTargetTypeId": 6,
+        "workoutTargetTypeKey": "pace",
         "displayOrder": 1,
         "targetValueOne": round(speed_ms * 0.90, 4),
         "targetValueTwo": round(speed_ms * 1.10, 4),

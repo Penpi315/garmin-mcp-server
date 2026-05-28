@@ -23,13 +23,21 @@ def pace_target(pace_min_km: float) -> dict:
         "targetValueTwo": round(speed_ms * 1.05, 4),
     }
 
-def make_step(step_type_id, step_type_key, display_order, step_order, duration_seconds, target):
+def make_time_step(step_type_id, step_type_key, display_order, step_order, duration_seconds, target):
     return ExecutableStep(
         stepOrder=step_order,
         stepType={"stepTypeId": step_type_id, "stepTypeKey": step_type_key, "displayOrder": display_order},
         endCondition={"conditionTypeId": 2, "conditionTypeKey": "time", "displayOrder": 2, "displayable": True},
         endConditionValue=float(duration_seconds),
-        targetType={"workoutTargetTypeId": 1, "workoutTargetTypeKey": "no.target", "displayOrder": 1},
+        target=target,
+    )
+
+def make_distance_step(step_type_id, step_type_key, display_order, step_order, distance_meters, target):
+    return ExecutableStep(
+        stepOrder=step_order,
+        stepType={"stepTypeId": step_type_id, "stepTypeKey": step_type_key, "displayOrder": display_order},
+        endCondition={"conditionTypeId": 3, "conditionTypeKey": "distance", "displayOrder": 3, "displayable": True},
+        endConditionValue=float(distance_meters),
         target=target,
     )
 
@@ -91,24 +99,26 @@ def create_running_workout(
     name: str,
     warmup_seconds: int,
     intervals: int,
-    interval_seconds: int,
+    interval_distance_meters: float,
     interval_pace_min_km: float,
-    recovery_seconds: int,
+    recovery_distance_meters: float,
     recovery_pace_min_km: float,
     cooldown_seconds: int,
     schedule_date: str = None
 ) -> dict:
     """
     Crea un workout de running estructurado con calentamiento, intervalos y enfriamiento.
+    Intervalos y recuperación por distancia en metros (ej: 1000 = 1km, 400 = 400m).
     interval_pace_min_km y recovery_pace_min_km en min/km decimal (5:30/km = 5.5, 4:00/km = 4.0).
+    Calentamiento y enfriamiento por tiempo en segundos.
     schedule_date opcional YYYY-MM-DD.
     """
     c = get_client()
 
-    warmup = make_step(1, "warmup", 1, 1, warmup_seconds, pace_target(recovery_pace_min_km))
+    warmup = make_time_step(1, "warmup", 1, 1, warmup_seconds, pace_target(recovery_pace_min_km))
 
-    interval_step = make_step(3, "interval", 3, 1, interval_seconds, pace_target(interval_pace_min_km))
-    recovery_step = make_step(4, "recovery", 4, 2, recovery_seconds, pace_target(recovery_pace_min_km))
+    interval_step = make_distance_step(3, "interval", 3, 1, interval_distance_meters, pace_target(interval_pace_min_km))
+    recovery_step = make_distance_step(4, "recovery", 4, 2, recovery_distance_meters, pace_target(recovery_pace_min_km))
 
     repeat = RepeatGroup(
         stepOrder=2,
@@ -119,9 +129,11 @@ def create_running_workout(
         endConditionValue=float(intervals),
     )
 
-    cooldown = make_step(2, "cooldown", 2, 3, cooldown_seconds, pace_target(recovery_pace_min_km))
+    cooldown = make_time_step(2, "cooldown", 2, 3, cooldown_seconds, pace_target(recovery_pace_min_km))
 
-    total_secs = float(warmup_seconds + intervals * (interval_seconds + recovery_seconds) + cooldown_seconds)
+    interval_secs = (interval_distance_meters / 1000) * interval_pace_min_km * 60
+    recovery_secs = (recovery_distance_meters / 1000) * recovery_pace_min_km * 60
+    total_secs = float(warmup_seconds + intervals * (interval_secs + recovery_secs) + cooldown_seconds)
 
     workout = RunningWorkout(
         workoutName=name,
